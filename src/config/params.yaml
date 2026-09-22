@@ -1,0 +1,61 @@
+# NeuroRad Analytics - Processing Parameters
+# Used by the radiomics feature extraction pipeline
+
+processing:
+  # Convert RGB/RGBA images to grayscale before analysis
+  to_gray: true
+
+  # Axis along which to extract 2D slices from 3D volumes
+  slice_axis: 0
+
+  # Maximum number of slices to process (for performance)
+  max_slices: 50
+
+  # Normalize intensity to 0-255 for visualization
+  normalize: true
+
+features:
+  # First-order statistics
+  first_order:
+    - mean
+    - std
+    - variance
+    - skewness
+    - kurtosis
+    - min
+    - max
+    - range
+    - median
+    - p10
+    - p25
+    - p75
+    - p90
+    - entropy
+
+  # GLCM texture features
+  glcm:
+    quantization_levels: 8
+    angles: [0]
+    distances: [1]
+    features:
+      - contrast
+      - correlation
+      - energy
+      - homogeneity
+
+  # Morphological features from segmentation mask
+  morphology:
+    - area
+    - perimeter
+    - eccentricity
+    - extent
+
+output:
+  # Excel file with all computed features
+  excel_filename: "radiomics_results.xlsx"
+
+  # Processed image with mask overlay
+  image_filename: "processed_image.png"
+
+  # Processed segmentation mask
+  mask_filename: "processed_mask.png"
