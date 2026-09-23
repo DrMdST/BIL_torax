@@ -5,6 +5,10 @@ NRRD Radiomics Feature Extractor
 Desktop application for Windows 10 (and cross-platform).
 Builds into a standalone .exe via PyInstaller - no installation required.
 
+All radiomic features are computed ONLY from the region of interest (ROI)
+defined by the .seg.nrrd segmentation mask. Voxels outside the mask are
+never included in any calculation.
+
 Usage:
     python desktop_app.py
 
@@ -46,7 +50,7 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Image processing (mirrors test.py logic)
+# Image processing
 # ---------------------------------------------------------------------------
 
 def to_gray(data: np.ndarray) -> np.ndarray:
@@ -63,7 +67,7 @@ def to_gray(data: np.ndarray) -> np.ndarray:
 
 
 def normalize_slice(slice_data: np.ndarray) -> np.ndarray:
-    """Normalize to 0-255 uint8."""
+    """Normalize to 0-255 uint8 for visualization."""
     mn, mx = float(slice_data.min()), float(slice_data.max())
     if mx - mn < 1e-8:
         return np.zeros_like(slice_data, dtype=np.uint8)
@@ -75,7 +79,6 @@ def slice_to_image(slice_data: np.ndarray, mask_slice: Optional[np.ndarray] = No
     norm = normalize_slice(slice_data)
     if mask_slice is not None:
         mask_bin = (mask_slice > 0).astype(np.uint8)
-        rgb = np.stack([norm, norm, norm], axis=-1)
         red_overlay = np.stack([
             np.where(mask_bin > 0, (norm.astype(np.int32) * 2 // 5 + 200).clip(0, 255).astype(np.uint8), norm),
             np.where(mask_bin > 0, (norm.astype(np.int32) * 2 // 5 + 50).clip(0, 255).astype(np.uint8), norm),
@@ -86,37 +89,89 @@ def slice_to_image(slice_data: np.ndarray, mask_slice: Optional[np.ndarray] = No
 
 
 # ---------------------------------------------------------------------------
-# Feature extraction
+# Feature extraction — ALL features computed ONLY within the mask ROI
 # ---------------------------------------------------------------------------
 
-def compute_glcm(slice_data: np.ndarray, levels: int = 8) -> dict:
-    """Compute GLCM texture features."""
-    mn, mx = float(slice_data.min()), float(slice_data.max())
+def compute_first_order(masked_values: np.ndarray) -> dict:
+    """First-order statistics from image intensities WITHIN the mask only."""
+    if masked_values.size == 0:
+        return {k: 0.0 for k in [
+            'Mean', 'Std', 'Variance', 'Skewness', 'Kurtosis',
+            'Min', 'Max', 'Range', 'Median',
+            'P10', 'P25', 'P75', 'P90', 'Entropy'
+        ]}
+
+    mu = float(masked_values.mean())
+    sigma = float(masked_values.std())
+
+    if sigma > 1e-8:
+        skew = float(((masked_values - mu) / sigma) ** 3).mean())
+        kurt = float(((masked_values - mu) / sigma) ** 4).mean() - 3.0
+    else:
+        skew = 0.0
+        kurt = 0.0
+
+    hist, _ = np.histogram(masked_values, bins=32)
+    hist = hist / hist.sum()
+    hist = hist[hist > 0]
+    ent = float(-(hist * np.log2(hist)).sum())
+
+    return {
+        'Mean': mu, 'Std': sigma, 'Variance': float(masked_values.var()),
+        'Skewness': skew, 'Kurtosis': kurt,
+        'Min': float(masked_values.min()), 'Max': float(masked_values.max()),
+        'Range': float(masked_values.max() - masked_values.min()),
+        'Median': float(np.median(masked_values)),
+        'P10': float(np.percentile(masked_values, 10)),
+        'P25': float(np.percentile(masked_values, 25)),
+        'P75': float(np.percentile(masked_values, 75)),
+        'P90': float(np.percentile(masked_values, 90)),
+        'Entropy': ent,
+    }
+
+
+def compute_glcm_masked(img_slice: np.ndarray, mask_slice: np.ndarray, levels: int = 8) -> dict:
+    """
+    GLCM texture features computed ONLY from pixel pairs where BOTH pixels
+    are inside the mask. Gray-level quantization uses the range of the masked
+    region only.
+    """
+    binary = mask_slice > 0
+    if binary.sum() == 0:
+        return {k: 0.0 for k in ['GLCM_Contrast', 'GLCM_Correlation', 'GLCM_Energy', 'GLCM_Homogeneity']}
+
+    masked_vals = img_slice[binary]
+    mn, mx = float(masked_vals.min()), float(masked_vals.max())
     rng = mx - mn if mx > mn else 1.0
-    quantized = np.clip(((slice_data - mn) / rng * (levels - 1)).astype(np.int32), 0, levels - 1)
+    quantized = np.clip(((img_slice - mn) / rng * (levels - 1)).astype(np.int32), 0, levels - 1)
 
     glcm = np.zeros((levels, levels), dtype=np.float64)
     h, w = quantized.shape
     count = 0
     for y in range(h):
         for x in range(w - 1):
-            a, b = quantized[y, x], quantized[y, x + 1]
-            glcm[a, b] += 1
-            glcm[b, a] += 1
-            count += 2
+            if binary[y, x] and binary[y, x + 1]:
+                a, b = quantized[y, x], quantized[y, x + 1]
+                glcm[a, b] += 1
+                glcm[b, a] += 1
+                count += 2
     if count > 0:
         glcm /= count
+    else:
+        return {k: 0.0 for k in ['GLCM_Contrast', 'GLCM_Correlation', 'GLCM_Energy', 'GLCM_Homogeneity']}
 
-    contrast, energy, homogeneity, correlation = 0.0, 0.0, 0.0, 0.0
-    mu_i, mu_j, sig_i, sig_j = 0.0, 0.0, 0.0, 0.0
+    contrast, energy, homogeneity = 0.0, 0.0, 0.0
+    mu_i, mu_j = 0.0, 0.0
     for i in range(levels):
         for j in range(levels):
             p = glcm[i, j]
             contrast += p * (i - j) ** 2
             energy += p * p
-            homogeneity += p / (1 + (i - j) ** 2
+            homogeneity += p / (1 + (i - j) ** 2)
             mu_i += i * p
             mu_j += j * p
+
+    sig_i, sig_j = 0.0, 0.0
     for i in range(levels):
         for j in range(levels):
             p = glcm[i, j]
@@ -124,6 +179,8 @@ def compute_glcm(slice_data: np.ndarray, levels: int = 8) -> dict:
             sig_j += (j - mu_j) ** 2 * p
     sig_i = np.sqrt(sig_i)
     sig_j = np.sqrt(sig_j)
+
+    correlation = 0.0
     if sig_i > 0 and sig_j > 0:
         for i in range(levels):
             for j in range(levels):
@@ -131,15 +188,15 @@ def compute_glcm(slice_data: np.ndarray, levels: int = 8) -> dict:
                 correlation += (i - mu_i) * (j - mu_j) * p / (sig_i * sig_j)
 
     return {
-        'GLCM_Contrast': contrast,
-        'GLCM_Correlation': correlation,
-        'GLCM_Energy': energy,
-        'GLCM_Homogeneity': homogeneity,
+        'GLCM_Contrast': float(contrast),
+        'GLCM_Correlation': float(correlation),
+        'GLCM_Energy': float(energy),
+        'GLCM_Homogeneity': float(homogeneity),
     }
 
 
 def compute_morphology(mask_slice: np.ndarray) -> dict:
-    """Compute morphological features from binary mask."""
+    """Morphological/shape features from the binary mask geometry."""
     binary = mask_slice > 0
     area = int(binary.sum())
     if area == 0:
@@ -171,52 +228,31 @@ def compute_morphology(mask_slice: np.ndarray) -> dict:
     extent = area / (bbox_w * bbox_h) if bbox_w * bbox_h > 0 else 0.0
 
     return {
-        'Mask_Area': area,
-        'Mask_Perimeter': perimeter,
-        'Mask_Eccentricity': eccentricity,
-        'Mask_Extent': extent,
+        'Mask_Area': area, 'Mask_Perimeter': perimeter,
+        'Mask_Eccentricity': eccentricity, 'Mask_Extent': extent,
     }
 
 
 def extract_features_slice(img_slice: np.ndarray, mask_slice: np.ndarray) -> dict:
-    """Extract all radiomic features for a single slice."""
-    masked = img_slice[mask_slice > 0]
-    if masked.size == 0:
-        return {
-            'Voxels_in_mask': 0, 'Mean': 0, 'Std': 0, 'Variance': 0,
-            'Skewness': 0, 'Kurtosis': 0, 'Min': 0, 'Max': 0, 'Range': 0,
-            'Median': 0, 'P10': 0, 'P25': 0, 'P75': 0, 'P90': 0, 'Entropy': 0,
-            'GLCM_Contrast': 0, 'GLCM_Correlation': 0, 'GLCM_Energy': 0, 'GLCM_Homogeneity': 0,
-            'Mask_Area': 0, 'Mask_Perimeter': 0, 'Mask_Eccentricity': 0, 'Mask_Extent': 0,
-        }
+    """
+    Extract ALL radiomic features for a single slice.
 
-    mu = float(masked.mean())
-    sigma = float(masked.std())
-    var = float(masked.var())
-    skew = float(((masked - mu) / sigma).mean()) if sigma > 1e-8 else 0.0
-    kurt = float(((masked - mu) / sigma).kurtosis()) if sigma > 1e-8 else 0.0
+    The mask defines the region of interest (ROI). Only image voxels where
+    the mask is non-zero are used for first-order and GLCM calculations.
+    Shape features are derived from the mask geometry itself.
+    """
+    binary = mask_slice > 0
+    masked_values = img_slice[binary]
 
-    hist, _ = np.histogram(masked, bins=32)
-    hist = hist / hist.sum()
-    hist = hist[hist > 0]
-    ent = float(-(hist * np.log2(hist)).sum())
-
-    glcm = compute_glcm(img_slice)
+    first_order = compute_first_order(masked_values)
+    glcm = compute_glcm_masked(img_slice, mask_slice)
     morph = compute_morphology(mask_slice)
 
     return {
-        'Voxels_in_mask': int(masked.size),
-        'Mean': mu, 'Std': sigma, 'Variance': var,
-        'Skewness': skew, 'Kurtosis': kurt,
-        'Min': float(masked.min()), 'Max': float(masked.max()),
-        'Range': float(masked.max() - masked.min()),
-        'Median': float(np.median(masked)),
-        'P10': float(np.percentile(masked, 10)),
-        'P25': float(np.percentile(masked, 25)),
-        'P75': float(np.percentile(masked, 75)),
-        'P90': float(np.percentile(masked, 90)),
-        'Entropy': ent,
-        **glcm, **morph,
+        'Voxels_in_mask': int(masked_values.size),
+        **first_order,
+        **glcm,
+        **morph,
     }
 
 
@@ -447,13 +483,13 @@ class NeuroRadApp:
         self.process_btn.config(state='normal')
         self.status_label.config(text=f"Done! {len(self.results)} slices processed.")
 
-        # Show preview
         self._show_preview(self.processed_image)
 
         messagebox.showinfo(
             "Complete",
             f"Analysis complete!\n\n"
-            f"Features extracted from {len(self.results)} slices.\n\n"
+            f"Features extracted from {len(self.results)} slices.\n"
+            f"All features computed within the mask region of interest.\n\n"
             f"Output files:\n"
             f"  Excel: {xlsx_path}\n"
             f"  Image: {img_path}\n"

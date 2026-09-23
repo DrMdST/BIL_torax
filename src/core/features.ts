@@ -1,5 +1,5 @@
 import type { NRRDData } from './nrrd';
-import { toGray, get2DSlice, normalizeToUint8 } from './imageOps';
+import { toGray, get2DSlice } from './imageOps';
 
 export interface FeatureResult {
   [key: string]: number;
@@ -71,37 +71,60 @@ function entropy(arr: Float32Array): number {
   return h;
 }
 
-function glcmFeatures(arr: Float32Array, width: number, height: number): {
-  contrast: number; correlation: number; energy: number; homogeneity: number;
-} {
+/**
+ * Compute GLCM texture features ONLY from pixel pairs where BOTH pixels
+ * are inside the mask. Gray-level quantization uses the intensity range
+ * of the masked region only, ensuring texture reflects just the ROI.
+ */
+function glcmFeaturesMasked(
+  imgData: Float32Array,
+  maskData: Float32Array,
+  width: number,
+  height: number
+): { contrast: number; correlation: number; energy: number; homogeneity: number } {
   const levels = 8;
-  const quantized = new Uint8Array(arr.length);
+
+  // Find min/max from the MASKED region only
   let min = Infinity, max = -Infinity;
-  for (let i = 0; i < arr.length; i++) {
-    if (arr[i] < min) min = arr[i];
-    if (arr[i] > max) max = arr[i];
+  for (let i = 0; i < imgData.length; i++) {
+    if (maskData[i] > 0) {
+      if (imgData[i] < min) min = imgData[i];
+      if (imgData[i] > max) max = imgData[i];
+    }
   }
+  if (min === Infinity) {
+    return { contrast: 0, correlation: 0, energy: 0, homogeneity: 0 };
+  }
+
   const range = max - min || 1;
-  for (let i = 0; i < arr.length; i++) {
-    quantized[i] = Math.min(levels - 1, Math.floor(((arr[i] - min) / range) * (levels - 1)));
+  const quantized = new Uint8Array(imgData.length);
+  for (let i = 0; i < imgData.length; i++) {
+    quantized[i] = Math.min(levels - 1, Math.floor(((imgData[i] - min) / range) * (levels - 1)));
   }
 
   const glcm = new Float32Array(levels * levels);
   let count = 0;
 
+  // Only count co-occurrences where BOTH pixels are inside the mask
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width - 1; x++) {
-      const a = quantized[y * width + x];
-      const b = quantized[y * width + x + 1];
-      glcm[a * levels + b]++;
-      glcm[b * levels + a]++;
-      count += 2;
+      const idxA = y * width + x;
+      const idxB = y * width + x + 1;
+      if (maskData[idxA] > 0 && maskData[idxB] > 0) {
+        const a = quantized[idxA];
+        const b = quantized[idxB];
+        glcm[a * levels + b]++;
+        glcm[b * levels + a]++;
+        count += 2;
+      }
     }
   }
 
-  if (count > 0) {
-    for (let i = 0; i < glcm.length; i++) glcm[i] /= count;
+  if (count === 0) {
+    return { contrast: 0, correlation: 0, energy: 0, homogeneity: 0 };
   }
+
+  for (let i = 0; i < glcm.length; i++) glcm[i] /= count;
 
   let contrast = 0, energy = 0, homogeneity = 0, correlation = 0;
   let muI = 0, muJ = 0, sigmaI = 0, sigmaJ = 0;
@@ -184,6 +207,13 @@ function morphologicalFeatures(maskSlice: Float32Array, width: number, height: n
   return { area, perimeter, eccentricity, extent };
 }
 
+/**
+ * Extract ALL radiomic features for a single 2D slice.
+ *
+ * The mask defines the region of interest (ROI). Only image voxels where
+ * the mask is non-zero are used for first-order and GLCM calculations.
+ * Shape features are derived from the mask geometry itself.
+ */
 export function extractFeatures(
   image: NRRDData,
   mask: NRRDData,
@@ -198,6 +228,7 @@ export function extractFeatures(
   const { slice: imgData, width, height } = imgSlice;
   const { slice: mskData } = maskSlice;
 
+  // Extract ONLY the image values within the mask region
   const maskedValues: number[] = [];
   for (let i = 0; i < imgData.length; i++) {
     if (mskData[i] > 0) maskedValues.push(imgData[i]);
@@ -226,7 +257,9 @@ export function extractFeatures(
   const p75 = percentile(maskedArr, 75);
   const p90 = percentile(maskedArr, 90);
   const ent = entropy(maskedArr);
-  const glcm = glcmFeatures(imgData, width, height);
+
+  // GLCM computed ONLY from pixel pairs where both pixels are inside the mask
+  const glcm = glcmFeaturesMasked(imgData, mskData, width, height);
   const morph = morphologicalFeatures(mskData, width, height);
 
   return {
