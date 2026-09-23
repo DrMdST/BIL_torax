@@ -165,39 +165,68 @@ export async function parseNRRD(file: File): Promise<NRRDData> {
   return { data: typedArray, shape, spacing, sizes: shape, endian, encoding, dtype };
 }
 
-export function getSlice(nrrd: NRRDData, sliceIndex: number, axis: number = 2): Float32Array {
-  const [d0, d1, d2] = nrrd.shape;
+export function getSlice(nrrd: NRRDData, sliceIndex: number, axis: number = 0): Float32Array {
+  const shape = nrrd.shape;
+  const data = nrrd.data;
+
+  if (shape.length === 2) {
+    const w = shape[1], h = shape[0];
+    const slice = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) slice[i] = data[i];
+    return slice;
+  }
+
+  if (shape.length < 3) {
+    const total = shape.reduce((a, b) => a * b, 1);
+    const slice = new Float32Array(total);
+    for (let i = 0; i < total; i++) slice[i] = data[i];
+    return slice;
+  }
+
+  const [d0, d1, d2] = shape;
   let width: number, height: number, depth: number;
 
-  if (axis === 0) { width = d1; height = d2; depth = d0; }
-  else if (axis === 1) { width = d0; height = d2; depth = d1; }
-  else { width = d0; height = d1; depth = d2; }
+  if (axis === 0) { width = d2; height = d1; depth = d0; }
+  else if (axis === 1) { width = d2; height = d0; depth = d1; }
+  else { width = d1; height = d0; depth = d2; }
 
   if (sliceIndex < 0 || sliceIndex >= depth) throw new Error(`Slice ${sliceIndex} out of range (depth ${depth})`);
 
   const slice = new Float32Array(width * height);
-  const data = nrrd.data;
 
-  if (axis === 2) {
-    const offset = sliceIndex * width * height;
+  if (axis === 0) {
+    const offset = sliceIndex * d1 * d2;
     for (let i = 0; i < width * height; i++) {
       slice[i] = data[offset + i];
     }
-  } else if (axis === 0) {
+  } else if (axis === 1) {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        slice[y * width + x] = data[sliceIndex + x * d2 + y * d1 * d2];
+        slice[y * width + x] = data[y * d1 * d2 + sliceIndex * d2 + x];
       }
     }
   } else {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        slice[y * width + x] = data[x + sliceIndex * d2 + y * d1 * d2];
+        slice[y * width + x] = data[y * d1 * d2 + x * d2 + sliceIndex];
       }
     }
   }
 
   return slice;
+}
+
+export function getSliceDimensions(nrrd: NRRDData, axis: number = 0): { width: number; height: number; depth: number } {
+  const shape = nrrd.shape;
+  if (shape.length === 2) return { width: shape[1], height: shape[0], depth: 1 };
+  if (shape.length < 3) {
+    const total = shape.reduce((a, b) => a * b, 1);
+    return { width: total, height: 1, depth: 1 };
+  }
+  const [d0, d1, d2] = shape;
+  if (axis === 0) return { width: d2, height: d1, depth: d0 };
+  if (axis === 1) return { width: d2, height: d0, depth: d1 };
+  return { width: d1, height: d0, depth: d2 };
 }
 
 export function normalizeSlice(slice: Float32Array): Uint8Array {

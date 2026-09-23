@@ -11,17 +11,7 @@ export function toGray(nrrd: NRRDData): Float32Array {
   }
 
   if (shape.length === 3) {
-    if (shape[2] === 3 || shape[2] === 4) {
-      const h = shape[0], w = shape[1];
-      const result = new Float32Array(h * w);
-      for (let i = 0; i < h * w; i++) {
-        const r = data[i * 3], g = data[i * 3 + 1], b = data[i * 3 + 2];
-        result[i] = 0.299 * r + 0.587 * g + 0.114 * b;
-      }
-      return result;
-    }
-
-    const total = shape.reduce((a, b) => a * b, 1);
+    const total = shape[0] * shape[1] * shape[2];
     const result = new Float32Array(total);
     for (let i = 0; i < total; i++) result[i] = data[i];
     return result;
@@ -113,10 +103,22 @@ export function get2DSlice(
     return { slice, width, height };
   }
 
+  if (shape.length === 4) {
+    const d = shape[0], h = shape[1], w = shape[2];
+    const idx = Math.min(sliceIndex, d - 1);
+    const sliceSize = h * w;
+    const slice = new Float32Array(sliceSize);
+    const offset = idx * sliceSize;
+    for (let i = 0; i < sliceSize; i++) {
+      slice[i] = data[offset + i];
+    }
+    return { slice, width: w, height: h };
+  }
+
   const total = shape.reduce((a, b) => a * b, 1);
   const flat = new Float32Array(total);
   for (let i = 0; i < total; i++) flat[i] = data[i];
-  return { slice: flat, width: shape[shape.length - 1], height: shape[0] };
+  return { slice: flat, width: shape[shape.length - 1], height: 1 };
 }
 
 export function normalizeToUint8(data: Float32Array): Uint8Array {

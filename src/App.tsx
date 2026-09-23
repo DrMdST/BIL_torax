@@ -3,7 +3,7 @@ import {
   Upload, FileImage, FileCheck2, Loader2, Download, Table, AlertCircle,
   X, Brain, Activity, Layers, ChevronRight, Info, CheckCircle2,
 } from 'lucide-react';
-import { parseNRRD, type NRRDData, getSlice, normalizeSlice } from '@/core/nrrd';
+import { parseNRRD, type NRRDData, getSlice, getSliceDimensions, normalizeSlice } from '@/core/nrrd';
 import { extractAllSlices, type FeatureResult } from '@/core/features';
 import { exportToXLSX, downloadBlob } from '@/core/export';
 
@@ -46,10 +46,7 @@ export default function App() {
       }
 
       const nrrd = await parseNRRD(file);
-      const shape = nrrd.shape;
-      const depth = shape.length >= 3 ? shape[0] : 1;
-      const width = shape.length >= 3 ? shape[2] : (shape.length >= 2 ? shape[1] : shape[0]);
-      const height = shape.length >= 3 ? shape[1] : (shape.length >= 2 ? shape[0] : 1);
+      const { width, height, depth } = getSliceDimensions(nrrd, 0);
 
       const midSlice = Math.floor(depth / 2);
       const slice = getSlice(nrrd, midSlice, 0);
@@ -89,10 +86,7 @@ export default function App() {
     if (!imageSlot.nrrd || !maskSlot.nrrd) return;
     setCurrentSlice(sliceIdx);
 
-    const shape = imageSlot.nrrd.shape;
-    const depth = shape.length >= 3 ? shape[0] : 1;
-    const width = shape.length >= 3 ? shape[2] : (shape.length >= 2 ? shape[1] : shape[0]);
-    const height = shape.length >= 3 ? shape[1] : (shape.length >= 2 ? shape[0] : 1);
+    const { width, height } = getSliceDimensions(imageSlot.nrrd, 0);
 
     const imgSlice = getSlice(imageSlot.nrrd, sliceIdx, 0);
     const maskSlice = getSlice(maskSlot.nrrd, sliceIdx, 0);
@@ -133,10 +127,8 @@ export default function App() {
     try {
       await new Promise(r => setTimeout(r, 100));
 
-      const depth = Math.min(
-        imageSlot.nrrd.shape.length >= 3 ? imageSlot.nrrd.shape[0] : 1,
-        50
-      );
+      const { width, height, depth: fullDepth } = getSliceDimensions(imageSlot.nrrd, 0);
+      const depth = Math.min(fullDepth, 50);
       setMaxSlice(depth);
 
       const allResults = extractAllSlices(imageSlot.nrrd, maskSlot.nrrd, depth);
@@ -145,10 +137,6 @@ export default function App() {
       const midSlice = Math.floor(depth / 2);
       setCurrentSlice(midSlice);
       handleSliceChange(midSlice);
-
-      const shape = imageSlot.nrrd.shape;
-      const width = shape.length >= 3 ? shape[2] : (shape.length >= 2 ? shape[1] : shape[0]);
-      const height = shape.length >= 3 ? shape[1] : (shape.length >= 2 ? shape[0] : 1);
 
       const imgSlice = getSlice(imageSlot.nrrd, midSlice, 0);
       const maskSlice = getSlice(maskSlot.nrrd, midSlice, 0);
