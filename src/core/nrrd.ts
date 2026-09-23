@@ -15,13 +15,52 @@ type TypedArrayConstructor =
 
 const DTYPE_MAP: Record<string, { arrayType: TypedArrayConstructor; size: number }> = {
   'int8': { arrayType: Int8Array, size: 1 },
+  'int8_t': { arrayType: Int8Array, size: 1 },
+  'signed char': { arrayType: Int8Array, size: 1 },
+  'char': { arrayType: Int8Array, size: 1 },
   'uint8': { arrayType: Uint8Array, size: 1 },
+  'uint8_t': { arrayType: Uint8Array, size: 1 },
+  'unsigned char': { arrayType: Uint8Array, size: 1 },
+  'uchar': { arrayType: Uint8Array, size: 1 },
   'int16': { arrayType: Int16Array, size: 2 },
+  'int16_t': { arrayType: Int16Array, size: 2 },
+  'short': { arrayType: Int16Array, size: 2 },
+  'short int': { arrayType: Int16Array, size: 2 },
+  'signed short': { arrayType: Int16Array, size: 2 },
+  'signed short int': { arrayType: Int16Array, size: 2 },
   'uint16': { arrayType: Uint16Array, size: 2 },
+  'uint16_t': { arrayType: Uint16Array, size: 2 },
+  'unsigned short': { arrayType: Uint16Array, size: 2 },
+  'unsigned short int': { arrayType: Uint16Array, size: 2 },
+  'ushort': { arrayType: Uint16Array, size: 2 },
   'int32': { arrayType: Int32Array, size: 4 },
+  'int32_t': { arrayType: Int32Array, size: 4 },
+  'int': { arrayType: Int32Array, size: 4 },
+  'signed int': { arrayType: Int32Array, size: 4 },
+  'long': { arrayType: Int32Array, size: 4 },
+  'long int': { arrayType: Int32Array, size: 4 },
+  'longlong': { arrayType: Int32Array, size: 4 },
+  'long long': { arrayType: Int32Array, size: 4 },
+  'long long int': { arrayType: Int32Array, size: 4 },
   'uint32': { arrayType: Uint32Array, size: 4 },
+  'uint32_t': { arrayType: Uint32Array, size: 4 },
+  'unsigned': { arrayType: Uint32Array, size: 4 },
+  'unsigned int': { arrayType: Uint32Array, size: 4 },
+  'ulong': { arrayType: Uint32Array, size: 4 },
+  'unsigned long': { arrayType: Uint32Array, size: 4 },
+  'unsigned long int': { arrayType: Uint32Array, size: 4 },
+  'ulonglong': { arrayType: Uint32Array, size: 4 },
+  'unsigned long long': { arrayType: Uint32Array, size: 4 },
+  'unsigned long long int': { arrayType: Uint32Array, size: 4 },
+  'uint64': { arrayType: Uint32Array, size: 4 },
+  'uint64_t': { arrayType: Uint32Array, size: 4 },
   'float32': { arrayType: Float32Array, size: 4 },
+  'float': { arrayType: Float32Array, size: 4 },
+  'double': { arrayType: Float64Array, size: 8 },
   'float64': { arrayType: Float64Array, size: 8 },
+  'long double': { arrayType: Float64Array, size: 8 },
+  'double float': { arrayType: Float64Array, size: 8 },
+  'block': { arrayType: Uint8Array, size: 1 },
 };
 
 function parseHeader(headerText: string): Record<string, unknown> {
@@ -75,7 +114,7 @@ export async function parseNRRD(file: File): Promise<NRRDData> {
   const headerText = new TextDecoder('ascii').decode(bytes.subarray(0, headerEnd));
   const fields = parseHeader(headerText);
 
-  const dtype = (fields['type'] as string) || 'int16';
+  const dtype = ((fields['type'] as string) || 'int16').toLowerCase().trim();
   const encoding = (fields['encoding'] as string) || 'raw';
   const endian = (fields['endian'] as string) || 'little';
   const shape = (fields['sizes'] as number[]) || [];
