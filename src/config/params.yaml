@@ -3,7 +3,7 @@ imageType:
 
 featureClass:
   firstorder: {}
-  shape2D: {}      # Только 2D признаки формы для УЗИ
+  shape2D: {}      # Для УЗИ используем только 2D признаки формы
   glcm: {}
   glrlm: {}
   glszm: {}
@@ -11,11 +11,11 @@ featureClass:
   ngtdm: {}
 
 setting:
-  label: 1
-  binWidth: 25
-  resampledPixelSpacing: null
+  label: 1                  # ID сегмента в .seg.nrrd (обычно 1)
+  binWidth: 25              # Ширина бина для УЗИ
+  resampledPixelSpacing: null # Сохраняем оригинальный размер пикселя из файла
   interpolator: sitkBSpline
-  force2D: true           # КРИТИЧНО для 2D УЗИ
-  force2Ddimension: 0
-  minimumROIDimensions: 2
+  force2D: true             # КРИТИЧНО: заставляет PyRadiomics считать признаки как для 2D
+  force2Ddimension: 0       # Ось, вдоль которой применяется 2D (ось Z)
+  minimumROIDimensions: 2   # Разрешаем анализ даже если маска плоская
   verbose: true
