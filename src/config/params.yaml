@@ -1,93 +1,23 @@
-# NeuroRad Analytics - Radiomics Processing Parameters
-# Based on pyradiomics configuration
-# Features are computed ONLY within the region defined by the .seg.nrrd mask
-
-image:
-  format: nrrd
-  to_gray: true
-  # Squeeze size-1 dimensions and transpose for correct orientation
-  squeeze: true
-  transpose: true
-
-mask:
-  format: nrrd
-  label: 1
+imageType:
+  Original: {}
+  LoG:
+    sigma: [1.0, 3.0]
+  Wavelet: {}
 
 featureClass:
-  # First-order statistics (18 features) — from image intensities within the mask
-  firstorder:
-    - Mean
-    - StandardDeviation
-    - Variance
-    - Skewness
-    - Kurtosis
-    - Median
-    - Minimum
-    - Maximum
-    - Range
-    - 10Percentile
-    - 25Percentile
-    - 75Percentile
-    - 90Percentile
-    - Entropy
-    - Uniformity
-    - RootMeanSquared
-    - MedianAbsoluteDeviation
-    - Energy
+  firstorder: {}
+  shape: {}
+  shape2D: {}
+  glcm: {}
+  glrlm: {}
+  glszm: {}
+  gldm: {}
+  ngtdm: {}
 
-  # GLCM texture features (24 features) — from gray levels within the mask
-  # Uses binWidth=25 for quantization, 4 angles (0, 45, 90, 135)
-  glcm:
-    binWidth: 25
-    angles: [0, 45, 90, 135]
-    distances: [1]
-    features:
-      - Contrast
-      - Correlation
-      - JointEnergy
-      - Idm
-      - ClusterShade
-      - ClusterProminence
-      - ClusterTendency
-      - DifferenceAverage
-      - DifferenceVariance
-      - DifferenceEntropy
-      - SumAverage
-      - SumVariance
-      - SumEntropy
-      - Idmn
-      - Idn
-      - Imc1
-      - Imc2
-      - MaximumProbability
-      - Autocorrelation
-      - JointVariance
-      - JointEntropy
-      - InverseVariance
-
-  # Shape/morphological features (14 features) — from mask geometry
-  shape2D:
-    - PixelArea
-    - Perimeter
-    - Eccentricity
-    - Extent
-    - MajorAxisLength
-    - MinorAxisLength
-    - Elongation
-    - Flatness
-    - Diameter
-    - SurfaceArea
-    - Maximum2DDiameter
-    - Minimum2DDiameter
-    - BoundingBoxArea
-    - PerimeterSurfaceRatio
-
-processing:
-  slice_axis: 0
-  max_slices: 50
-  normalize: true
-
-output:
-  excel_filename: "radiomics_results.xlsx"
-  image_filename: "processed_image.png"
-  mask_filename: "processed_mask.png"
+setting:
+  label: 1                  # КРИТИЧНО: указывает анализировать сегмент №1 в .seg.nrrd
+  binWidth: 25              # Стандарт для КТ. Для МРТ может потребоваться нормализация и binWidth: 1.0
+  resampledPixelSpacing: null # null сохраняет оригинальный Spacing из файла. Не меняйте на 1.0!
+  interpolator: sitkBSpline
+  force2D: false            # Оставляем честный 3D-анализ
+  verbose: true
