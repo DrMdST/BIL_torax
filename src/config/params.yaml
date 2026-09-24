@@ -1,13 +1,9 @@
 imageType:
   Original: {}
-  LoG:
-    sigma: [1.0, 3.0]
-  Wavelet: {}
 
 featureClass:
   firstorder: {}
-  shape: {}
-  shape2D: {}
+  shape2D: {}      # Только 2D признаки формы для УЗИ
   glcm: {}
   glrlm: {}
   glszm: {}
@@ -15,9 +11,11 @@ featureClass:
   ngtdm: {}
 
 setting:
-  label: 1                  # КРИТИЧНО: указывает анализировать сегмент №1 в .seg.nrrd
-  binWidth: 25              # Стандарт для КТ. Для МРТ может потребоваться нормализация и binWidth: 1.0
-  resampledPixelSpacing: null # null сохраняет оригинальный Spacing из файла. Не меняйте на 1.0!
+  label: 1
+  binWidth: 25
+  resampledPixelSpacing: null
   interpolator: sitkBSpline
-  force2D: false            # Оставляем честный 3D-анализ
+  force2D: true           # КРИТИЧНО для 2D УЗИ
+  force2Ddimension: 0
+  minimumROIDimensions: 2
   verbose: true
