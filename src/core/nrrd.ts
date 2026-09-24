@@ -165,6 +165,57 @@ export async function parseNRRD(file: File): Promise<NRRDData> {
   return { data: typedArray, shape, spacing, sizes: shape, endian, encoding, dtype };
 }
 
+/**
+ * Squeeze out dimensions of size 1, then transpose axes.
+ * Mirrors the reference Python code: np.squeeze(image) then np.transpose(image, (1,2,0)).
+ * For 3D: removes size-1 dims, then transposes (d0,d1,d2) -> (d1,d2,d0).
+ * For 2D: transposes (h,w) -> (w,h).
+ */
+export function squeezeAndTranspose(nrrd: NRRDData): NRRDData {
+  const shape = nrrd.shape;
+  const data = nrrd.data;
+
+  // Squeeze: remove dimensions of size 1
+  const squeezedShape: number[] = [];
+  for (const s of shape) {
+    if (s !== 1) squeezedShape.push(s);
+  }
+  if (squeezedShape.length === 0) {
+    return { ...nrrd, data: new Float32Array([data[0]]), shape: [1] };
+  }
+
+  // Transpose
+  if (squeezedShape.length === 2) {
+    // 2D: transpose (h, w) -> (w, h)
+    const [h, w] = squeezedShape;
+    const result = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        result[x * h + y] = data[y * w + x];
+      }
+    }
+    return { ...nrrd, data: result as unknown as typeof nrrd.data, shape: [w, h] };
+  }
+
+  if (squeezedShape.length === 3) {
+    // 3D: transpose (d0, d1, d2) -> (d1, d2, d0)
+    const [d0, d1, d2] = squeezedShape;
+    const result = new Float32Array(d0 * d1 * d2);
+    for (let i = 0; i < d0; i++) {
+      for (let j = 0; j < d1; j++) {
+        for (let k = 0; k < d2; k++) {
+          const srcIdx = i * d1 * d2 + j * d2 + k;
+          const dstIdx = j * d2 * d0 + k * d0 + i;
+          result[dstIdx] = data[srcIdx];
+        }
+      }
+    }
+    return { ...nrrd, data: result as unknown as typeof nrrd.data, shape: [d1, d2, d0] };
+  }
+
+  return { ...nrrd, shape: squeezedShape };
+}
+
 export function getSlice(nrrd: NRRDData, sliceIndex: number, axis: number = 0): Float32Array {
   const shape = nrrd.shape;
   const data = nrrd.data;

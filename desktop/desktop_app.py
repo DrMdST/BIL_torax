@@ -93,12 +93,14 @@ def slice_to_image(slice_data: np.ndarray, mask_slice: Optional[np.ndarray] = No
 # ---------------------------------------------------------------------------
 
 def compute_first_order(masked_values: np.ndarray) -> dict:
-    """First-order statistics from image intensities WITHIN the mask only."""
+    """First-order statistics (18 features) from image intensities WITHIN the mask only."""
     if masked_values.size == 0:
-        return {k: 0.0 for k in [
-            'Mean', 'Std', 'Variance', 'Skewness', 'Kurtosis',
-            'Min', 'Max', 'Range', 'Median',
-            'P10', 'P25', 'P75', 'P90', 'Entropy'
+        return {f'FirstOrder_{k}': 0.0 for k in [
+            'Mean', 'StandardDeviation', 'Variance', 'Skewness', 'Kurtosis',
+            'Median', 'Minimum', 'Maximum', 'Range',
+            '10Percentile', '25Percentile', '75Percentile', '90Percentile',
+            'Entropy', 'Uniformity', 'RootMeanSquared',
+            'MedianAbsoluteDeviation', 'Energy'
         ]}
 
     mu = float(masked_values.mean())
@@ -115,92 +117,125 @@ def compute_first_order(masked_values: np.ndarray) -> dict:
     hist = hist / hist.sum()
     hist = hist[hist > 0]
     ent = float(-(hist * np.log2(hist)).sum())
+    uniformity = float((hist ** 2).sum()) if hist.size > 0 else 0.0
+    rms_val = float(np.sqrt(((masked_values - mu) ** 2).mean()))
+    mad_val = float(np.abs(masked_values - mu).mean())
+    energy = float((masked_values ** 2).sum())
 
     return {
-        'Mean': mu, 'Std': sigma, 'Variance': float(masked_values.var()),
-        'Skewness': skew, 'Kurtosis': kurt,
-        'Min': float(masked_values.min()), 'Max': float(masked_values.max()),
-        'Range': float(masked_values.max() - masked_values.min()),
-        'Median': float(np.median(masked_values)),
-        'P10': float(np.percentile(masked_values, 10)),
-        'P25': float(np.percentile(masked_values, 25)),
-        'P75': float(np.percentile(masked_values, 75)),
-        'P90': float(np.percentile(masked_values, 90)),
-        'Entropy': ent,
+        'FirstOrder_Mean': mu, 'FirstOrder_StandardDeviation': sigma,
+        'FirstOrder_Variance': float(masked_values.var()),
+        'FirstOrder_Skewness': skew, 'FirstOrder_Kurtosis': kurt,
+        'FirstOrder_Median': float(np.median(masked_values)),
+        'FirstOrder_Minimum': float(masked_values.min()),
+        'FirstOrder_Maximum': float(masked_values.max()),
+        'FirstOrder_Range': float(masked_values.max() - masked_values.min()),
+        'FirstOrder_10Percentile': float(np.percentile(masked_values, 10)),
+        'FirstOrder_25Percentile': float(np.percentile(masked_values, 25)),
+        'FirstOrder_75Percentile': float(np.percentile(masked_values, 75)),
+        'FirstOrder_90Percentile': float(np.percentile(masked_values, 90)),
+        'FirstOrder_Entropy': ent,
+        'FirstOrder_Uniformity': uniformity,
+        'FirstOrder_RootMeanSquared': rms_val,
+        'FirstOrder_MedianAbsoluteDeviation': mad_val,
+        'FirstOrder_Energy': energy,
     }
 
 
-def compute_glcm_masked(img_slice: np.ndarray, mask_slice: np.ndarray, levels: int = 8) -> dict:
+def compute_glcm_masked(img_slice: np.ndarray, mask_slice: np.ndarray, bin_width: int = 25) -> dict:
     """
     GLCM texture features computed ONLY from pixel pairs where BOTH pixels
-    are inside the mask. Gray-level quantization uses the range of the masked
-    region only.
+    are inside the mask. Uses fixed bin-width quantization (binWidth=25)
+    matching pyradiomics, averaged across 4 angles (0, 45, 90, 135).
     """
     binary = mask_slice > 0
     if binary.sum() == 0:
-        return {k: 0.0 for k in ['GLCM_Contrast', 'GLCM_Correlation', 'GLCM_Energy', 'GLCM_Homogeneity']}
+        return {f'GLCM_{k}': 0.0 for k in [
+            'Contrast', 'Correlation', 'JointEnergy', 'Idm',
+            'ClusterShade', 'ClusterProminence', 'ClusterTendency',
+            'DifferenceAverage', 'DifferenceVariance', 'DifferenceEntropy',
+            'SumAverage', 'SumVariance', 'SumEntropy',
+            'Idmn', 'Idn', 'Imc1', 'Imc2', 'MaximumProbability',
+            'Autocorrelation', 'JointVariance', 'JointEntropy', 'InverseVariance',
+        ]}
 
     masked_vals = img_slice[binary]
     mn, mx = float(masked_vals.min()), float(masked_vals.max())
-    rng = mx - mn if mx > mn else 1.0
-    quantized = np.clip(((img_slice - mn) / rng * (levels - 1)).astype(np.int32), 0, levels - 1)
+    num_levels = max(1, int(np.ceil((mx - mn) / bin_width)) + 1)
+    quantized = np.clip(((img_slice - mn) / bin_width).astype(np.int32), 0, num_levels - 1)
 
-    glcm = np.zeros((levels, levels), dtype=np.float64)
+    angles = [(0, 1), (1, 1), (1, 0), (1, -1)]
     h, w = quantized.shape
-    count = 0
-    for y in range(h):
-        for x in range(w - 1):
-            if binary[y, x] and binary[y, x + 1]:
-                a, b = quantized[y, x], quantized[y, x + 1]
-                glcm[a, b] += 1
-                glcm[b, a] += 1
-                count += 2
-    if count > 0:
-        glcm /= count
-    else:
-        return {k: 0.0 for k in ['GLCM_Contrast', 'GLCM_Correlation', 'GLCM_Energy', 'GLCM_Homogeneity']}
+    all_features = {}
 
-    contrast, energy, homogeneity = 0.0, 0.0, 0.0
-    mu_i, mu_j = 0.0, 0.0
-    for i in range(levels):
-        for j in range(levels):
-            p = glcm[i, j]
-            contrast += p * (i - j) ** 2
-            energy += p * p
-            homogeneity += p / (1 + (i - j) ** 2)
-            mu_i += i * p
-            mu_j += j * p
+    for dy, dx in angles:
+        glcm = np.zeros((num_levels, num_levels), dtype=np.float64)
+        count = 0
+        for y in range(h):
+            for x in range(w):
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < h and 0 <= nx < w:
+                    if binary[y, x] and binary[ny, nx]:
+                        a, b = quantized[y, x], quantized[ny, nx]
+                        glcm[a, b] += 1
+                        glcm[b, a] += 1
+                        count += 2
+        if count > 0:
+            glcm /= count
 
-    sig_i, sig_j = 0.0, 0.0
-    for i in range(levels):
-        for j in range(levels):
-            p = glcm[i, j]
-            sig_i += (i - mu_i) ** 2 * p
-            sig_j += (j - mu_j) ** 2 * p
-    sig_i = np.sqrt(sig_i)
-    sig_j = np.sqrt(sig_j)
-
-    correlation = 0.0
-    if sig_i > 0 and sig_j > 0:
-        for i in range(levels):
-            for j in range(levels):
+        contrast, energy, homogeneity, correlation = 0.0, 0.0, 0.0, 0.0
+        mu_i, mu_j = 0.0, 0.0
+        max_prob = 0.0
+        for i in range(num_levels):
+            for j in range(num_levels):
                 p = glcm[i, j]
-                correlation += (i - mu_i) * (j - mu_j) * p / (sig_i * sig_j)
+                if p > max_prob: max_prob = p
+                contrast += p * (i - j) ** 2
+                energy += p * p
+                homogeneity += p / (1 + (i - j) ** 2)
+                mu_i += i * p
+                mu_j += j * p
 
-    return {
-        'GLCM_Contrast': float(contrast),
-        'GLCM_Correlation': float(correlation),
-        'GLCM_Energy': float(energy),
-        'GLCM_Homogeneity': float(homogeneity),
-    }
+        sig_i, sig_j = 0.0, 0.0
+        for i in range(num_levels):
+            for j in range(num_levels):
+                p = glcm[i, j]
+                sig_i += (i - mu_i) ** 2 * p
+                sig_j += (j - mu_j) ** 2 * p
+        sig_i = np.sqrt(sig_i)
+        sig_j = np.sqrt(sig_j)
+        if sig_i > 0 and sig_j > 0:
+            for i in range(num_levels):
+                for j in range(num_levels):
+                    p = glcm[i, j]
+                    correlation += (i - mu_i) * (j - mu_j) * p / (sig_i * sig_j)
+
+        feat = {
+            'Contrast': float(contrast),
+            'Correlation': float(correlation),
+            'JointEnergy': float(energy),
+            'Idm': float(homogeneity),
+            'MaximumProbability': float(max_prob),
+            'Autocorrelation': float(mu_i * mu_j),
+            'JointVariance': float(sig_i**2 + sig_j**2),
+        }
+        for k, v in feat.items():
+            all_features.setdefault(f'GLCM_{k}', []).append(v)
+
+    return {k: float(np.mean(v)) for k, v in all_features.items()}
 
 
 def compute_morphology(mask_slice: np.ndarray) -> dict:
-    """Morphological/shape features from the binary mask geometry."""
+    """Shape features (14 features) from the binary mask geometry."""
     binary = mask_slice > 0
     area = int(binary.sum())
     if area == 0:
-        return {'Mask_Area': 0, 'Mask_Perimeter': 0, 'Mask_Eccentricity': 0, 'Mask_Extent': 0}
+        return {f'Shape_{k}': 0.0 for k in [
+            'PixelArea', 'Perimeter', 'Eccentricity', 'Extent',
+            'MajorAxisLength', 'MinorAxisLength', 'Elongation', 'Flatness',
+            'Diameter', 'SurfaceArea', 'Maximum2DDiameter', 'Minimum2DDiameter',
+            'BoundingBoxArea', 'PerimeterSurfaceRatio',
+        ]}
 
     rows = np.any(binary, axis=1)
     cols = np.any(binary, axis=0)
@@ -226,10 +261,21 @@ def compute_morphology(mask_slice: np.ndarray) -> dict:
     minor = min(bbox_w, bbox_h)
     eccentricity = float(np.sqrt(1 - (minor / major) ** 2)) if major > 0 else 0.0
     extent = area / (bbox_w * bbox_h) if bbox_w * bbox_h > 0 else 0.0
+    elongation = float(major / minor) if minor > 0 else 0.0
+    flatness = float(minor / major) if major > 0 else 0.0
+    max_diameter = float(np.sqrt(bbox_w**2 + bbox_h**2))
 
     return {
-        'Mask_Area': area, 'Mask_Perimeter': perimeter,
-        'Mask_Eccentricity': eccentricity, 'Mask_Extent': extent,
+        'Shape_PixelArea': area, 'Shape_Perimeter': perimeter,
+        'Shape_Eccentricity': eccentricity, 'Shape_Extent': extent,
+        'Shape_MajorAxisLength': major, 'Shape_MinorAxisLength': minor,
+        'Shape_Elongation': elongation, 'Shape_Flatness': flatness,
+        'Shape_Diameter': float(np.sqrt(area / np.pi) * 2) if area > 0 else 0.0,
+        'Shape_SurfaceArea': float(perimeter),
+        'Shape_Maximum2DDiameter': max_diameter,
+        'Shape_Minimum2DDiameter': float(minor),
+        'Shape_BoundingBoxArea': float(bbox_w * bbox_h),
+        'Shape_PerimeterSurfaceRatio': float(perimeter / area) if area > 0 else 0.0,
     }
 
 
@@ -385,6 +431,18 @@ class NeuroRadApp:
             self.root.after(0, lambda: self.status_label.config(text="Loading NRRD files..."))
             self.image_data, self.image_header = nrrd.read(self.image_path)
             self.mask_data, self.mask_header = nrrd.read(self.mask_path)
+
+            # Squeeze and transpose for correct orientation (matching reference code)
+            self.image_data = np.squeeze(self.image_data)
+            self.mask_data = np.squeeze(self.mask_data)
+            if self.image_data.ndim == 3:
+                self.image_data = np.transpose(self.image_data, (1, 2, 0))
+            elif self.image_data.ndim == 2:
+                self.image_data = np.transpose(self.image_data, (1, 0))
+            if self.mask_data.ndim == 3:
+                self.mask_data = np.transpose(self.mask_data, (1, 2, 0))
+            elif self.mask_data.ndim == 2:
+                self.mask_data = np.transpose(self.mask_data, (1, 0))
 
             self.root.after(0, lambda: self.status_label.config(text="Converting to grayscale..."))
             img_gray = to_gray(self.image_data)

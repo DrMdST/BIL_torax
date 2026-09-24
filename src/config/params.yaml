@@ -3,56 +3,88 @@
 # Features are computed ONLY within the region defined by the .seg.nrrd mask
 
 image:
-  # Input image file (.nrrd)
   format: nrrd
-  # Convert to grayscale if multi-channel
   to_gray: true
+  # Squeeze size-1 dimensions and transpose for correct orientation
+  squeeze: true
+  transpose: true
 
 mask:
-  # Segmentation mask file (.seg.nrrd)
   format: nrrd
-  # Label value in the mask that defines the region of interest
-  # All voxels with this value (or any non-zero value) form the ROI
   label: 1
 
 featureClass:
-  # First-order statistics — computed from image intensities within the mask
+  # First-order statistics (18 features) — from image intensities within the mask
   firstorder:
     - Mean
     - StandardDeviation
     - Variance
     - Skewness
     - Kurtosis
+    - Median
     - Minimum
     - Maximum
     - Range
-    - Median
     - 10Percentile
     - 25Percentile
     - 75Percentile
     - 90Percentile
     - Entropy
+    - Uniformity
+    - RootMeanSquared
+    - MedianAbsoluteDeviation
+    - Energy
 
-  # GLCM texture features — computed from gray levels within the mask
+  # GLCM texture features (24 features) — from gray levels within the mask
+  # Uses binWidth=25 for quantization, 4 angles (0, 45, 90, 135)
   glcm:
-    - Contrast
-    - Correlation
-    - JointEnergy
-    - Idm
+    binWidth: 25
+    angles: [0, 45, 90, 135]
+    distances: [1]
+    features:
+      - Contrast
+      - Correlation
+      - JointEnergy
+      - Idm
+      - ClusterShade
+      - ClusterProminence
+      - ClusterTendency
+      - DifferenceAverage
+      - DifferenceVariance
+      - DifferenceEntropy
+      - SumAverage
+      - SumVariance
+      - SumEntropy
+      - Idmn
+      - Idn
+      - Imc1
+      - Imc2
+      - MaximumProbability
+      - Autocorrelation
+      - JointVariance
+      - JointEntropy
+      - InverseVariance
 
-  # Shape / morphological features — computed from the mask geometry
+  # Shape/morphological features (14 features) — from mask geometry
   shape2D:
     - PixelArea
     - Perimeter
     - Eccentricity
-    - MeshVolume
+    - Extent
+    - MajorAxisLength
+    - MinorAxisLength
+    - Elongation
+    - Flatness
+    - Diameter
+    - SurfaceArea
+    - Maximum2DDiameter
+    - Minimum2DDiameter
+    - BoundingBoxArea
+    - PerimeterSurfaceRatio
 
 processing:
-  # Axis for 2D slice extraction from 3D volumes
   slice_axis: 0
-  # Maximum slices to process
   max_slices: 50
-  # Normalize intensity to 0-255 for visualization only
   normalize: true
 
 output:

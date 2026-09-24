@@ -3,7 +3,7 @@ import {
   Upload, FileImage, FileCheck2, Loader2, Download, Table, AlertCircle,
   X, Brain, Activity, Layers, ChevronRight, Info, CheckCircle2,
 } from 'lucide-react';
-import { parseNRRD, type NRRDData, getSlice, getSliceDimensions, normalizeSlice } from '@/core/nrrd';
+import { parseNRRD, type NRRDData, getSlice, getSliceDimensions, normalizeSlice, squeezeAndTranspose } from '@/core/nrrd';
 import { extractAllSlices, type FeatureResult } from '@/core/features';
 import { exportToXLSX, downloadBlob } from '@/core/export';
 
@@ -46,10 +46,11 @@ export default function App() {
       }
 
       const nrrd = await parseNRRD(file);
-      const { width, height, depth } = getSliceDimensions(nrrd, 0);
+      const processed = squeezeAndTranspose(nrrd);
+      const { width, height, depth } = getSliceDimensions(processed, 0);
 
       const midSlice = Math.floor(depth / 2);
-      const slice = getSlice(nrrd, midSlice, 0);
+      const slice = getSlice(processed, midSlice, 0);
       const normalized = normalizeSlice(slice);
 
       const canvas = document.createElement('canvas');
@@ -67,7 +68,7 @@ export default function App() {
       ctx.putImageData(imageData, 0, 0);
       const preview = canvas.toDataURL('image/png');
 
-      setSlot({ file, nrrd, preview });
+      setSlot({ file, nrrd: processed, preview });
       setStatus('idle');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to parse file');
